@@ -1,4 +1,4 @@
-<meta name="google-site-verification" content="KjGX5oaJCbhPClx" />
+<meta name="google-site-verification" content="Apib7-x98H0j5cPqHWwSMm6dNU4GmODRoqxLiDzdx9I" />
 # Smart Agriculture AI 🌾
 
 An intelligent, AI-powered system designed for **crop yield prediction** and **soil health analysis**. This project leverages **Machine Learning** algorithms to optimize farming practices, enhance agricultural sustainability, and boost crop productivity based on soil properties.
