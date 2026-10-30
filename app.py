@@ -11,20 +11,23 @@ def train_model():
     try:
         df = pd.read_csv("ubutaka_data.csv")
         
-        # Gukosora amakosa y'inyuguti nkuru n'intoya mu buryo bwikora
+        # Gukosora amakosa y'inyuguti nkuru n'intoya n'utwanya tw'abasaguye
         df.columns = df.columns.str.strip().str.lower()
         
-        X = df[['n', 'p', 'k', 'ph', 'temperature', 'humidity']]
-        y = df['crop']
+        # Gufata inkingi 6 za mbere nk'ibiranga ubutaka (Features) n'izina ryose zaba zifite
+        X = df.iloc[:, 0:6]
+        
+        # Gufata inkingi ya 7 nka Crop (Target)
+        y = df.iloc[:, 6]
         
         model = RandomForestClassifier(random_state=42)
         model.fit(X.values, y)
-        return model
+        return model, df
     except Exception as e:
         st.error(f"Hari ikibazo cyabaye mu gutoza AI: {e}")
-        return None
+        return None, None
 
-model = train_model()
+model, df_clean = train_model()
 
 # 2. Gukora urubuga (UI Config)
 st.set_page_config(page_title="Smart Agriculture AI", page_icon="🌾", layout="centered")
@@ -36,29 +39,22 @@ st.write("Urakaza neza! Koresha uru rubuga mu gushakisha no guhanura ibihingwa b
 st.markdown("### 🔍 1. AI Search Engine (Shakisha Igihingwa)")
 search_query = st.text_input("Tapamo izina ry'igihingwa (Urugero: Ibigori, Ibishyimbo):", "")
 
-if search_query:
-    if os.path.exists("ubutaka_data.csv"):
-        df = pd.read_csv("ubutaka_data.csv")
-        df.columns = df.columns.str.strip().str.lower()
+if search_query and df_clean is not None:
+    # Gushakisha inkingi y'igihingwa (iri ku mwanya wa nyuma)
+    crop_col = df_clean.columns[6]
+    results = df_clean[df_clean[crop_col].astype(str).str.contains(search_query, case=False, na=False)]
+    
+    if not results.empty:
+        # Gufata imirongo ya mbere y'inkingi z'imibare
+        avg_n = results.iloc[:, 0].mean()
+        avg_p = results.iloc[:, 1].mean()
+        avg_k = results.iloc[:, 2].mean()
+        avg_ph = results.iloc[:, 3].mean()
         
-        # Gushakisha igihingwa mu buryo butagira amakosa
-        if 'crop' in df.columns:
-            results = df[df['crop'].str.contains(search_query, case=False, na=False)]
-            
-            if not results.empty:
-                avg_n = results['n'].mean()
-                avg_p = results['p'].mean()
-                avg_k = results['k'].mean()
-                avg_ph = results['ph'].mean()
-                
-                st.success(f"✅ Amakuru kuri **{search_query}** yabonetse muri AI Knowledge Base!")
-                st.info(f"💡 **Inama ya AI:** Igihingwa cya *'{search_query}'* gikura neza mu butaka bufite Nitrogen ya **{avg_n:.1f}**, Phosphorus ya **{avg_p:.1f}**, Potassium ya **{avg_k:.1f}** hamwe na pH ya **{avg_ph:.1f}**.")
-            else:
-                st.warning(f"❌ Nta makuru ahagije AI ifite kuri '{search_query}' muri ubutaka_data.csv ubu ngubu.")
-        else:
-            st.error("Inkingi y'igihingwa (crop) ntabwo iboneka mu makuru.")
+        st.success(f"✅ Amakuru kuri **{search_query}** yabonetse muri AI Knowledge Base!")
+        st.info(f"💡 **Inama ya AI:** Igihingwa cya *'{search_query}'* gikura neza mu butaka bufite Nitrogen ya **{avg_n:.1f}**, Phosphorus ya **{avg_p:.1f}**, Potassium ya **{avg_k:.1f}** hamwe na pH ya **{avg_ph:.1f}**.")
     else:
-        st.error("Dosiye ya ubutaka_data.csv ntabwo iteguye.")
+        st.warning(f"❌ Nta makuru ahagije AI ifite kuri '{search_query}' muri ubutaka_data.csv ubu ngubu.")
 
 st.markdown("---")
 
