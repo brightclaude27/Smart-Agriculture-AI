@@ -10,7 +10,6 @@ def train_model():
         return None
     try:
         df = pd.read_csv("ubutaka_data.csv")
-        # Menya neza ko amazina y'inkingi ahura n'ari mu CSV yawe (N, P, K, pH, Temperature, Humidity, Crop)
         X = df[['N', 'P', 'K', 'pH', 'Temperature', 'Humidity']]
         y = df['Crop']
         
@@ -36,7 +35,6 @@ search_query = st.text_input("Tapamo izina ry'igihingwa (Urugero: Ibigori, Ibish
 if search_query:
     if os.path.exists("ubutaka_data.csv"):
         df = pd.read_csv("ubutaka_data.csv")
-        # Gushakisha muri database
         results = df[df['Crop'].str.contains(search_query, case=False, na=False)]
         
         if not results.empty:
@@ -77,3 +75,4 @@ if st.button("Hana Igihingwa Gikwiriye"):
         st.balloons()
         st.success(f"🌱 AI iremeza ko igihingwa cyiza cyera hano ari: **{prediction[0]}**")
     else:
+        st.error("Model ya AI ntabwo yatojwe neza. Reba niba ubutaka_data.csv irimo amakuru meza.")
