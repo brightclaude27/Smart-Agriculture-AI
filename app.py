@@ -7,18 +7,26 @@ import streamlit as st
 @st.cache_data
 def train_model():
     if not os.path.exists("ubutaka_data.csv"):
-        return None
+        return None, None
     try:
         df = pd.read_csv("ubutaka_data.csv")
         
         # Gukosora amakosa y'inyuguti nkuru n'intoya n'utwanya tw'abasaguye
         df.columns = df.columns.str.strip().str.lower()
         
-        # Gufata inkingi 6 za mbere nk'ibiranga ubutaka (Features) n'izina ryose zaba zifite
-        X = df.iloc[:, 0:6]
+        # Gushakisha inkingi y'igihingwa (crop) ititaye ku buryo yanditse
+        crop_col = [col for col in df.columns if 'crop' in col or 'ihingwa' in col]
+        if not crop_col:
+            # Niba itabonetse, dufata inkingi ya nyuma nka target
+            crop_name = df.columns[-1]
+        else:
+            crop_name = crop_col[0]
+            
+        # Gufata izindi nkingi zose zisigaye nk'ibiranga ubutaka (Features)
+        feature_cols = [col for col in df.columns if col != crop_name]
         
-        # Gufata inkingi ya 7 nka Crop (Target)
-        y = df.iloc[:, 6]
+        X = df[feature_cols]
+        y = df[crop_name]
         
         model = RandomForestClassifier(random_state=42)
         model.fit(X.values, y)
@@ -40,19 +48,24 @@ st.markdown("### 🔍 1. AI Search Engine (Shakisha Igihingwa)")
 search_query = st.text_input("Tapamo izina ry'igihingwa (Urugero: Ibigori, Ibishyimbo):", "")
 
 if search_query and df_clean is not None:
-    # Gushakisha inkingi y'igihingwa (iri ku mwanya wa nyuma)
-    crop_col = df_clean.columns[6]
-    results = df_clean[df_clean[crop_col].astype(str).str.contains(search_query, case=False, na=False)]
+    # Gushakisha inkingi y'igihingwa
+    crop_col = [col for col in df_clean.columns if 'crop' in col or 'ihingwa' in col]
+    crop_name = crop_col[0] if crop_col else df_clean.columns[-1]
+    
+    results = df_clean[df_clean[crop_name].astype(str).str.contains(search_query, case=False, na=False)]
     
     if not results.empty:
-        # Gufata imirongo ya mbere y'inkingi z'imibare
-        avg_n = results.iloc[:, 0].mean()
-        avg_p = results.iloc[:, 1].mean()
-        avg_k = results.iloc[:, 2].mean()
-        avg_ph = results.iloc[:, 3].mean()
+        # Gushakisha inkingi z'imibare mu buryo bwikora
+        num_cols = results.select_dtypes(include=['number']).columns
         
-        st.success(f"✅ Amakuru kuri **{search_query}** yabonetse muri AI Knowledge Base!")
-        st.info(f"💡 **Inama ya AI:** Igihingwa cya *'{search_query}'* gikura neza mu butaka bufite Nitrogen ya **{avg_n:.1f}**, Phosphorus ya **{avg_p:.1f}**, Potassium ya **{avg_k:.1f}** hamwe na pH ya **{avg_ph:.1f}**.")
+        # Gutanga inama hashingiye ku nkingi zihari
+        advice_text = f"✅ Amakuru kuri **{search_query}** yabonetse muri AI Knowledge Base!\n\n💡 **Inama ya AI:** Igihingwa cya *'{search_query}'* gikura neza mu butaka bufite iyi miterere:\n"
+        for col in num_cols:
+            avg_val = results[col].mean()
+            advice_text += f"- **{col.upper()}**: {avg_val:.1f}\n"
+            
+        st.success(f"✅ Byabonetse!")
+        st.info(advice_text)
     else:
         st.warning(f"❌ Nta makuru ahagije AI ifite kuri '{search_query}' muri ubutaka_data.csv ubu ngubu.")
 
@@ -76,6 +89,7 @@ with col2:
 
 if st.button("Hana Igihingwa Gikwiriye"):
     if model is not None:
+        # Gufata ibipimo 6 by'ibanze biba bikenewe na model
         input_data = [[n, p, k, ph, temp, hum]]
         prediction = model.predict(input_data)
         st.balloons()
