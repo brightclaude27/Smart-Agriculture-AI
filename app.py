@@ -10,8 +10,12 @@ def train_model():
         return None
     try:
         df = pd.read_csv("ubutaka_data.csv")
-        X = df[['N', 'P', 'K', 'pH', 'Temperature', 'Humidity']]
-        y = df['Crop']
+        
+        # Gukosora amakosa y'inyuguti nkuru n'intoya mu buryo bwikora
+        df.columns = df.columns.str.strip().str.lower()
+        
+        X = df[['n', 'p', 'k', 'ph', 'temperature', 'humidity']]
+        y = df['crop']
         
         model = RandomForestClassifier(random_state=42)
         model.fit(X.values, y)
@@ -35,18 +39,24 @@ search_query = st.text_input("Tapamo izina ry'igihingwa (Urugero: Ibigori, Ibish
 if search_query:
     if os.path.exists("ubutaka_data.csv"):
         df = pd.read_csv("ubutaka_data.csv")
-        results = df[df['Crop'].str.contains(search_query, case=False, na=False)]
+        df.columns = df.columns.str.strip().str.lower()
         
-        if not results.empty:
-            avg_n = results['N'].mean()
-            avg_p = results['P'].mean()
-            avg_k = results['K'].mean()
-            avg_ph = results['pH'].mean()
+        # Gushakisha igihingwa mu buryo butagira amakosa
+        if 'crop' in df.columns:
+            results = df[df['crop'].str.contains(search_query, case=False, na=False)]
             
-            st.success(f"✅ Amakuru kuri **{search_query}** yabonetse muri AI Knowledge Base!")
-            st.info(f"💡 **Inama ya AI:** Igihingwa cya *'{search_query}'* gikura neza mu butaka bufite Nitrogen ya **{avg_n:.1f}**, Phosphorus ya **{avg_p:.1f}**, Potassium ya **{avg_k:.1f}** hamwe na pH ya **{avg_ph:.1f}**.")
+            if not results.empty:
+                avg_n = results['n'].mean()
+                avg_p = results['p'].mean()
+                avg_k = results['k'].mean()
+                avg_ph = results['ph'].mean()
+                
+                st.success(f"✅ Amakuru kuri **{search_query}** yabonetse muri AI Knowledge Base!")
+                st.info(f"💡 **Inama ya AI:** Igihingwa cya *'{search_query}'* gikura neza mu butaka bufite Nitrogen ya **{avg_n:.1f}**, Phosphorus ya **{avg_p:.1f}**, Potassium ya **{avg_k:.1f}** hamwe na pH ya **{avg_ph:.1f}**.")
+            else:
+                st.warning(f"❌ Nta makuru ahagije AI ifite kuri '{search_query}' muri ubutaka_data.csv ubu ngubu.")
         else:
-            st.warning(f"❌ Nta makuru ahagije AI ifite kuri '{search_query}' muri ubutaka_data.csv ubu ngubu.")
+            st.error("Inkingi y'igihingwa (crop) ntabwo iboneka mu makuru.")
     else:
         st.error("Dosiye ya ubutaka_data.csv ntabwo iteguye.")
 
