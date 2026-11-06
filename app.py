@@ -1,35 +1,52 @@
-import streamlit as st
+from fastapi import FastAPI
+from pydantic import BaseModel
+import pandas as pd
 
-# 1. SHYIRA AYA MAKURU MASHYA HANO HEJURU (Hasi ya import streamlit)
-amakuru_y_ibihingwa = {
-    "ibigori": {
-        "izina": "Ibigori (Maize)",
-        "ph": "5.5 - 7.0",
-        "ifumbire": "Nitrogen mwinshi (N) nka Urea/DAP, Phosphorus ngerere.",
-        "inama": "Bikunda ubutaka buhehereye neza buva amazi. Shira imvaho ku gipimo cya N: 100 n'ifumbire y'imborera ihagije mu gutera."
-    },
-    "ibishyimbo": {
-        "izina": "Ibishyimbo (Beans)",
-        "ph": "6.0 - 7.5",
-        "ifumbire": "Phosphorus mwinshi (P) nka DAP mu gutangira. Ntibikunda Nitrogen nywinshi.",
-        "inama": "Ibishyimbo bishobora gukora Nitrogen yabyo mu butaka (Nitrogen fixation). Bikunda ubutaka butari aside cyane kandi buva amazi."
-    },
-    # ... (Shyiramo n'ibindi bihingwa byose kugeza kuri marakuja)
-}
+# Guhagurutsa FastAPI application
+app = FastAPI(
+    title="Smart Agriculture AI API",
+    description="API ihuza amakuru y'ubutaka n'ubwonko bwa AI ku bwayo",
+    version="1.0.0"
+)
 
-st.title("Smart Agriculture AI Search & Predict Engine")
-st.write("Urakaza neza! Koresha uru rubuga mu gushakisha no guhanura ibihingwa bikwiriye ubutaka bwawe.")
+# 1. Gutegura imiterere y'amakuru API yawe izajya ihabwa (Data Structure)
+# Ibi bituma API idashobora kwakira amakuru mabi cyangwa amakuru atuzuye
+class UbutakaData(BaseModel):
+    temperature: float     # Ubushyuhe
+    humidity: float        # Ubuhehere
+    ph_level: float        # Urwego rwa aside (pH)
+    nitrogen: float        # Nitrogen (N)
+    phosphorus: float      # Phosphorus (P)
+    potassium: float       # Potassium (K)
 
-st.header("🔍 1. AI Search Engine (Shakisha Igihingwa)")
+# 2. Urubuga rwa mbere (Home Endpoint) kuko iyo umuntu funguye API ari rwo abona
+@app.get("/")
+def home():
+    return {
+        "status": "Online",
+        "message": "Ikaze kuri Smart Agriculture AI API! Umushinga uri gukora neza.",
+        "docs_url": "/docs"  # Hano niho uzasanga urubuga rwo kuyipima (Swagger UI)
+    }
 
-# 2. SHYIRA AKA GACE KO GUSHAKISHA HASI Y'ABO
-izina_ryanditswe = st.text_input("Tapamo izina ry'igihingwa (Urugero: Ibigori, Ibishyimbo):").lower().strip()
-
-if izina_ryanditswe in amakuru_y_ibihingwa:
-    crop = amakuru_y_ibihingwa[izina_ryanditswe]
-    st.success(f"🔍 **Amakuru kuri {crop['izina']}:**")
-    st.write(f"• **pH y'Ubutaka ikwiriye:** {crop['ph']}")
-    st.write(f"• **Ifumbire ikenewe:** {crop['ifumbire']}")
-    st.write(f"• **Inama z'ubuhinzi:** {crop['inama']}")
-elif izina_ryanditswe:
-    st.warning("Nta makuru ahagije ahari kuri iki gihingwa muri aka kanya.")
+# 3. Endpoint ihuza AI n'amakuru y'ubutaka (Prediction Endpoint)
+@app.post("/predict-yield/")
+def predict_crop_yield(data: UbutakaData):
+    # Guhindura amakuru yakiriwe mo DataFrame kugira ngo AI Model (nka Scikit-Learn) ishobore kuyasoma
+    input_data = pd.DataFrame([data.dict()])
+    
+    # HANO NIHO MODEL YAWE IZAKORERA PREDICTION NYACYO NYUMA YO KUYILOADINGA
+    # Urugero rw'umwanzuro w'agateganyo (Logic) mu gihe utarahagurutsa model ya .pkl cyangwa .h5
+    if data.ph_level < 5.5:
+        recommendation = "Ubutaka bufite aside (acid) nyinshi. Inama: Shyiramo ishwagara mu murima."
+    elif data.nitrogen < 20:
+        recommendation = "Urwego rwa Nitrogen ruri hasi cyane. Inama: Shira mu murima ifumbire ikize kuri NPK."
+    elif data.humidity < 40 and data.temperature > 30:
+        recommendation = "Ubutaka bwumye kandi harashyushye. Inama: Akora sisitemu yo kwihura (Irrigation system)."
+    else:
+        recommendation = "Amakuru y'ubutaka meze neza cyane! Bukwiriye guhingwamo ibirayi, ibigori cyangwa ibishyimbo."
+        
+    return {
+        "status": "success",
+        "data_received": data.dict(),
+        "ai_recommendation": recommendation
+    }
