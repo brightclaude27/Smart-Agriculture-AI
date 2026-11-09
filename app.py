@@ -1,7 +1,6 @@
 import os
 import requests
 import pandas as pd
-import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from sklearn.ensemble import RandomForestClassifier
@@ -12,38 +11,44 @@ CORS(app)
 # Shyiramo API Key yawe ya OpenWeatherMap niba uyifite (cyangwa uyirekere uko iri)
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY", "SHYIRAMO_API_KEY_YAWE_HANO")
 
+
 # =====================================================================
 # 1. KWIGISHA AI MODEL UKORESHEJE ubutaka_data.csv
 # =====================================================================
 def tegura_model():
     try:
         df = pd.read_csv('ubutaka_data.csv')
-        # Hindura amazina y'inkingi (columns) niba muri CSV yawe atandukanye n'aya
-        # Urugero: ['N', 'P', 'K', 'temperature', 'humidity', 'ph', 'rainfall', 'label']
-        X = df.iloc[:, :-1]  # Inkingi zose zibanza (ibipimo)
-        y = df.iloc[:, -1]   # Inkingi ya nyuma (izina ry'igihingwa)
-        
+        # X ni inkingi zose uretse iya nyuma; y ni inkingi ya nyuma (igihingwa)
+        X = df.iloc[:, :-1]
+        y = df.iloc[:, -1]
+
+        if X.shape[1] != 7:
+            print(f"⚠️ Icyitonderwa: CSV yawe ifite inkingi {X.shape[1]} z'ibipimo aho kuba 7.")
+
         model = RandomForestClassifier(n_estimators=100, random_state=42)
         model.fit(X, y)
-        print("✅ AI Model yigishijwe neza ikoresheje ubutaka_data.csv!")
+        print(f"✅ AI Model yigishijwe neza! Inkingi zakoreshejwe: {list(X.columns)}")
         return model, list(X.columns)
     except Exception as e:
         print(f"⚠️ Ikibazo mu gusoma ubutaka_data.csv: {e}")
         return None, []
 
+
 ai_model, feature_columns = tegura_model()
 
 
 # =====================================================================
-# 2. API YA 1: OPEN-METEO (Amakuru y'Ikirere - Ntisaba API Key)
+# 2. API YA 1: OPEN-METEO (Endpoint nyayo - Ntisaba API Key)
 # =====================================================================
 def fata_ikirere_open_meteo(lat, lon):
     try:
-        url = (
-            f"https://open-meteo.com?"
-            f"latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,rain"
-        )
-        res = requests.get(url, timeout=8)
+        base_url = "https://open-meteo.com"
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "current": "temperature_2m,relative_humidity_2m,rain"
+        }
+        res = requests.get(base_url, params=params, timeout=8)
         if res.status_code == 200:
             current = res.json().get('current', {})
             return {
@@ -58,17 +63,20 @@ def fata_ikirere_open_meteo(lat, lon):
 
 
 # =====================================================================
-# 3. API YA 2: OPENWEATHERMAP (Umufasha w'Ikirere / Backup API)
+# 3. API YA 2: OPENWEATHERMAP (Endpoint nyayo - Backup API)
 # =====================================================================
 def fata_ikirere_openweather(lat, lon):
     if OPENWEATHER_API_KEY == "SHYIRAMO_API_KEY_YAWE_HANO":
         return None
     try:
-        url = (
-            f"https://openweathermap.org?"
-            f"lat={lat}&lon={lon}&appid={OPENWEATHER_API_KEY}&units=metric"
-        )
-        res = requests.get(url, timeout=8)
+        base_url = "https://openweathermap.org"
+        params = {
+            "lat": lat,
+            "lon": lon,
+            "appid": OPENWEATHER_API_KEY,
+            "units": "metric"
+        }
+        res = requests.get(base_url, params=params, timeout=8)
         if res.status_code == 200:
             data = res.json()
             imvura = data.get('rain', {}).get('1h', 80.0)
@@ -84,32 +92,36 @@ def fata_ikirere_openweather(lat, lon):
 
 
 # =====================================================================
-# 4. API YA 3: ISRIC SOILGRIDS (Amakuru y'Ubutaka nka pH na Nitrogen)
+# 4. API YA 3: ISRIC SOILGRIDS REST API (Endpoint nyayo y'Ubutaka)
 # =====================================================================
 def fata_ubutaka_soilgrids(lat, lon):
     try:
-        url = (
-            f"https://isric.org?"
-            f"lon={lon}&lat={lat}&property=phh2o&property=nitrogen&depth=0-5cm&value=mean"
-        )
-        res = requests.get(url, timeout=10)
+        base_url = "https://isric.org"
+        params = {
+            "lon": lon,
+            "lat": lat,
+            "property": ["phh2o", "nitrogen"],
+            "depth": "0-5cm",
+            "value": "mean"
+        }
+        res = requests.get(base_url, params=params, timeout=10)
         if res.status_code == 200:
             layers = res.json().get('properties', {}).get('layers', [])
-            ph_val = 6.2     # Agaciro k'ifatizo niba katabonetse
-            n_val = 50.0     # Agaciro k'ifatizo ka Nitrogen
-            
+            ph_val = 6.2
+            n_val = 50.0
+
             for layer in layers:
                 if layer['name'] == 'phh2o':
                     raw_ph = layer['depths'][0]['values'].get('mean')
-                    if raw_ph:
-                        ph_val = round(raw_ph / 10.0, 2)  # SoilGrids itanga pH yikubye 10
+                    if raw_ph is not None:
+                        ph_val = round(raw_ph / 10.0, 2)
                 elif layer['name'] == 'nitrogen':
                     raw_n = layer['depths'][0]['values'].get('mean')
-                    if raw_n:
+                    if raw_n is not None:
                         n_val = round(raw_n / 100.0, 2)
-                        
+
             return {
-                'source': 'ISRIC SoilGrids API',
+                'source': 'ISRIC SoilGrids REST API',
                 'ph': ph_val,
                 'N': n_val
             }
@@ -126,41 +138,46 @@ def home():
     return jsonify({
         "status": "online",
         "project": "Smart Agriculture AI",
+        "inkingi_za_model": feature_columns,
         "message": "API irakora neza! Ohereza POST request kuri /api/predict"
     })
+
 
 @app.route('/api/predict', methods=['POST'])
 def predict():
     try:
         amakuru = request.get_json() or {}
-        
-        # Urugero rwa Coordinates (Niba umuhinzi atazitanze, hafatwa iza Nyamagabe, Rwanda)
+
+        # Coordinates z'ifatizo (Nyamagabe, Rwanda) niba umuhinzi atazitanze
         lat = float(amakuru.get('latitude', -2.48))
         lon = float(amakuru.get('longitude', 29.56))
-        
-        # A. Gukura amakuru y'ikirere kuri API 1 (Open-Meteo) cyangwa API 2 (OpenWeather)
+
+        # A. Gukura amakuru y'ikirere kuri API 1 cyangwa API 2
         ikirere = fata_ikirere_open_meteo(lat, lon) or fata_ikirere_openweather(lat, lon)
         if not ikirere:
             ikirere = {'source': 'Fallback Climate', 'temperature': 21.5, 'humidity': 75.0, 'rainfall': 110.0}
-            
-        # B. Gukura amakuru y'ubutaka kuri API 3 (ISRIC SoilGrids)
+
+        # B. Gukura amakuru y'ubutaka kuri API 3 (SoilGrids)
         ubutaka = fata_ubutaka_soilgrids(lat, lon)
-        
-        # C. Guhuza amakuru ya API n'ayo umuhinzi yiyandikiye (niba hari ayo yatanze)
+
+        # C. Guhuza ibipimo bya API n'ibyo umuhinzi yatanze
         N = float(amakuru.get('N', ubutaka['N']))
-        P = float(amakuru.get('P', 45.0))  # Phosphorus (ishobora gutangwa n'umuhinzi)
-        K = float(amakuru.get('K', 40.0))  # Potassium (ishobora gutangwa n'umuhinzi)
+        P = float(amakuru.get('P', 45.0))
+        K = float(amakuru.get('K', 40.0))
         ph = float(amakuru.get('ph', ubutaka['ph']))
         temp = float(amakuru.get('temperature', ikirere['temperature']))
         hum = float(amakuru.get('humidity', ikirere['humidity']))
         rain = float(amakuru.get('rainfall', ikirere['rainfall']))
-        
-        # D. Gukoresha AI Model mu guhanura igihingwa
-        if ai_model is not None:
-            ibipimo = np.array([[N, P, K, temp, hum, ph, rain]])
-            igihingwa = ai_model.predict(ibipimo)[0]
+
+        # D. Gukoresha DataFrame ifite amazina y'inkingi (feature_columns) nk'uko CSV imeze
+        if ai_model is not None and len(feature_columns) == 7:
+            ibipimo_df = pd.DataFrame(
+                [[N, P, K, temp, hum, ph, rain]],
+                columns=feature_columns
+            )
+            igihingwa = ai_model.predict(ibipimo_df)[0]
         else:
-            igihingwa = "Ibigori cyangwa Ibishyimbo (Model ntiyabashije gusoma CSV)"
+            igihingwa = "Ibigori cyangwa Ibishyimbo (Reba ko CSV ifite inkingi 7 z'ibipimo)"
 
         return jsonify({
             "status": "success",
