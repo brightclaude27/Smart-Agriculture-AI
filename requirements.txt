@@ -1,4 +1,6 @@
-streamlit
+flask
+flask-cors
+requests
 pandas
-numpy
 scikit-learn
+numpy
