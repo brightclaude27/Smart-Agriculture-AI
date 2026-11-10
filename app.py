@@ -1,203 +1,125 @@
 import os
-import requests
-import pandas as pd
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
-from sklearn.ensemble import RandomForestClassifier
+from openai import OpenAI
 
 app = Flask(__name__)
 CORS(app)
 
-# Shyiramo API Key yawe ya OpenWeatherMap niba uyifite (cyangwa uyirekere uko iri)
-OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY", "SHYIRAMO_API_KEY_YAWE_HANO")
+# Shyiramo API Key yawe ya OpenAI (cyangwa uyishyire muri Environment Variables kuri Render)
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    data = request.json
+    user_message = data.get("message", "")
 
-# =====================================================================
-# 1. KWIGISHA AI MODEL UKORESHEJE ubutaka_data.csv
-# =====================================================================
-def tegura_model():
+    if not user_message:
+        return jsonify({"error": "Nta butumwa bwoherejwe"}), 400
+
     try:
-        df = pd.read_csv('ubutaka_data.csv')
-        # X ni inkingi zose uretse iya nyuma; y ni inkingi ya nyuma (igihingwa)
-        X = df.iloc[:, :-1]
-        y = df.iloc[:, -1]
+        # Dukoresheje Responses API ya OpenAI ifite Web Search kugira ngo itange amakuru yizewe
+        response = client.responses.create(
+            model="gpt-4o",
+            tools=[{"type": "web_search_preview"}],
+            input=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Uri umujyanama w'ubuhinzi witwa Smart Agriculture AI. "
+                        "Subiza ibibazo mu Kinyarwanda cyiza, kandi ukoreshe amakuru yizewe "
+                        "avuye mu bushakashatsi bw'ubuhinzi (nka RAB, FAO). "
+                        "Niba umuntu aguhaye ibipimo bya N, P, K, ubushyuhe na pH, mufashe kubisesengura."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": user_message
+                }
+            ]
+        )
 
-        if X.shape[1] != 7:
-            print(f"⚠️ Icyitonderwa: CSV yawe ifite inkingi {X.shape[1]} z'ibipimo aho kuba 7.")
+        reply = response.output_text
+        return jsonify({"reply": reply})
 
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
-        model.fit(X, y)
-        print(f"✅ AI Model yigishijwe neza! Inkingi zakoreshejwe: {list(X.columns)}")
-        return model, list(X.columns)
     except Exception as e:
-        print(f"⚠️ Ikibazo mu gusoma ubutaka_data.csv: {e}")
-        return None, []
+        return jsonify({"reply": f"Habayemo ikibazo: {str(e)}"}), 500
 
-
-ai_model, feature_columns = tegura_model()
-
-
-# =====================================================================
-# 2. API YA 1: OPEN-METEO (Endpoint nyayo - Ntisaba API Key)
-# =====================================================================
-def fata_ikirere_open_meteo(lat, lon):
-    try:
-        base_url = "https://open-meteo.com"
-        params = {
-            "latitude": lat,
-            "longitude": lon,
-            "current": "temperature_2m,relative_humidity_2m,rain"
-        }
-        res = requests.get(base_url, params=params, timeout=8)
-        if res.status_code == 200:
-            current = res.json().get('current', {})
-            return {
-                'source': 'Open-Meteo API',
-                'temperature': current.get('temperature_2m', 22.0),
-                'humidity': current.get('relative_humidity_2m', 70.0),
-                'rainfall': current.get('rain', 100.0)
-            }
-    except Exception as e:
-        print(f"Open-Meteo Error: {e}")
-    return None
-
-
-# =====================================================================
-# 3. API YA 2: OPENWEATHERMAP (Endpoint nyayo - Backup API)
-# =====================================================================
-def fata_ikirere_openweather(lat, lon):
-    if OPENWEATHER_API_KEY == "SHYIRAMO_API_KEY_YAWE_HANO":
-        return None
-    try:
-        base_url = "https://openweathermap.org"
-        params = {
-            "lat": lat,
-            "lon": lon,
-            "appid": OPENWEATHER_API_KEY,
-            "units": "metric"
-        }
-        res = requests.get(base_url, params=params, timeout=8)
-        if res.status_code == 200:
-            data = res.json()
-            imvura = data.get('rain', {}).get('1h', 80.0)
-            return {
-                'source': 'OpenWeatherMap API',
-                'temperature': data['main']['temp'],
-                'humidity': data['main']['humidity'],
-                'rainfall': imvura
-            }
-    except Exception as e:
-        print(f"OpenWeather Error: {e}")
-    return None
-
-
-# =====================================================================
-# 4. API YA 3: ISRIC SOILGRIDS REST API (Endpoint nyayo y'Ubutaka)
-# =====================================================================
-def fata_ubutaka_soilgrids(lat, lon):
-    try:
-        base_url = "https://isric.org"
-        params = {
-            "lon": lon,
-            "lat": lat,
-            "property": ["phh2o", "nitrogen"],
-            "depth": "0-5cm",
-            "value": "mean"
-        }
-        res = requests.get(base_url, params=params, timeout=10)
-        if res.status_code == 200:
-            layers = res.json().get('properties', {}).get('layers', [])
-            ph_val = 6.2
-            n_val = 50.0
-
-            for layer in layers:
-                if layer['name'] == 'phh2o':
-                    raw_ph = layer['depths'][0]['values'].get('mean')
-                    if raw_ph is not None:
-                        ph_val = round(raw_ph / 10.0, 2)
-                elif layer['name'] == 'nitrogen':
-                    raw_n = layer['depths'][0]['values'].get('mean')
-                    if raw_n is not None:
-                        n_val = round(raw_n / 100.0, 2)
-
-            return {
-                'source': 'ISRIC SoilGrids REST API',
-                'ph': ph_val,
-                'N': n_val
-            }
-    except Exception as e:
-        print(f"SoilGrids Error: {e}")
-    return {'source': 'Default Values', 'ph': 6.0, 'N': 50.0}
-
-
-# =====================================================================
-# 5. INZIRA YA API (ENDPOINT) IHUZA BYOSE IGAHANURA IGIHINGWA
-# =====================================================================
-@app.route('/', methods=['GET'])
+# Urupapuro rwa Chat Box (Frontend)
+@app.route("/")
 def home():
-    return jsonify({
-        "status": "online",
-        "project": "Smart Agriculture AI",
-        "inkingi_za_model": feature_columns,
-        "message": "API irakora neza! Ohereza POST request kuri /api/predict"
-    })
+    return render_template_string(HTML_TEMPLATE)
 
+# Kode ya HTML/CSS/JS ya Chat Box
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="rw">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Agriculture AI - Chat</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f0f4f1; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .chat-container { width: 400px; max-width: 95%; background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); overflow: hidden; display: flex; flex-direction: column; height: 80vh; }
+        .chat-header { background: #2e7d32; color: white; padding: 15px; text-align: center; font-weight: bold; font-size: 18px; }
+        .chat-box { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .message { padding: 10px 14px; border-radius: 10px; max-width: 80%; line-height: 1.4; font-size: 14px; }
+        .user { background: #dcf8c6; align-self: flex-end; color: #111; }
+        .bot { background: #f1f0f0; align-self: flex-start; color: #111; }
+        .input-area { display: flex; border-top: 1px solid #ddd; padding: 10px; background: #fff; }
+        input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 20px; outline: none; }
+        button { background: #2e7d32; color: white; border: none; padding: 10px 18px; margin-left: 8px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #1b5e20; }
+    </style>
+</head>
+<body>
 
-@app.route('/api/predict', methods=['POST'])
-def predict():
-    try:
-        amakuru = request.get_json() or {}
+<div class="chat-container">
+    <div class="chat-header">🌱 Smart Agriculture AI</div>
+    <div class="chat-box" id="chatBox">
+        <div class="message bot">Muraho! Ndi Smart Agriculture AI. Mbaza ikibazo cyose ku buhinzi cyangwa umpe ibipimo by'ubutaka bwawe (N, P, K, pH).</div>
+    </div>
+    <div class="input-area">
+        <input type="text" id="userInput" placeholder="Andika ikibazo cyawe hano..." onkeypress="if(event.key==='Enter') sendMessage()">
+        <button onclick="sendMessage()">Ohereza</button>
+    </div>
+</div>
 
-        # Coordinates z'ifatizo (Nyamagabe, Rwanda) niba umuhinzi atazitanze
-        lat = float(amakuru.get('latitude', -2.48))
-        lon = float(amakuru.get('longitude', 29.56))
+<script>
+    async function sendMessage() {
+        const input = document.getElementById("userInput");
+        const chatBox = document.getElementById("chatBox");
+        const text = input.value.trim();
+        if (!text) return;
 
-        # A. Gukura amakuru y'ikirere kuri API 1 cyangwa API 2
-        ikirere = fata_ikirere_open_meteo(lat, lon) or fata_ikirere_openweather(lat, lon)
-        if not ikirere:
-            ikirere = {'source': 'Fallback Climate', 'temperature': 21.5, 'humidity': 75.0, 'rainfall': 110.0}
+        // Erekana ubutumwa bw'umukoresha
+        chatBox.innerHTML += `<div class="message user">${text}</div>`;
+        input.value = "";
+        chatBox.scrollTop = chatBox.scrollHeight;
 
-        # B. Gukura amakuru y'ubutaka kuri API 3 (SoilGrids)
-        ubutaka = fata_ubutaka_soilgrids(lat, lon)
+        // Erekana ko AI iri gutekereza
+        const loadingId = "loading-" + Date.now();
+        chatBox.innerHTML += `<div class="message bot" id="${loadingId}">Irashakisha igisubizo...</div>`;
+        chatBox.scrollTop = chatBox.scrollHeight;
 
-        # C. Guhuza ibipimo bya API n'ibyo umuhinzi yatanze
-        N = float(amakuru.get('N', ubutaka['N']))
-        P = float(amakuru.get('P', 45.0))
-        K = float(amakuru.get('K', 40.0))
-        ph = float(amakuru.get('ph', ubutaka['ph']))
-        temp = float(amakuru.get('temperature', ikirere['temperature']))
-        hum = float(amakuru.get('humidity', ikirere['humidity']))
-        rain = float(amakuru.get('rainfall', ikirere['rainfall']))
+        try {
+            const response = await fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: text })
+            });
+            const data = await response.json();
+            document.getElementById(loadingId).innerText = data.reply;
+        } catch (error) {
+            document.getElementById(loadingId).innerText = "Habayemo ikibazo cyo guhura na seriveri.";
+        }
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+</script>
 
-        # D. Gukoresha DataFrame ifite amazina y'inkingi (feature_columns) nk'uko CSV imeze
-        if ai_model is not None and len(feature_columns) == 7:
-            ibipimo_df = pd.DataFrame(
-                [[N, P, K, temp, hum, ph, rain]],
-                columns=feature_columns
-            )
-            igihingwa = ai_model.predict(ibipimo_df)[0]
-        else:
-            igihingwa = "Ibigori cyangwa Ibishyimbo (Reba ko CSV ifite inkingi 7 z'ibipimo)"
+</body>
+</html>
+"""
 
-        return jsonify({
-            "status": "success",
-            "igihingwa_cyiza": str(igihingwa),
-            "ubutumwa": f"Hashingiwe ku makuru yizewe y'ikirere n'ubutaka, igihingwa kiberanye n'uyu murima ni: {igihingwa}",
-            "ibipimo_byakoreshejwe": {
-                "Nitrogen (N)": N,
-                "Phosphorus (P)": P,
-                "Potassium (K)": K,
-                "pH_yubutaka": ph,
-                "Ubushyuhe_C": temp,
-                "Ubuhehere_%": hum,
-                "Imvura_mm": rain
-            },
-            "amasoko_yamakuru": [ikirere['source'], ubutaka['source']]
-        })
-
-    except Exception as e:
-        return jsonify({"status": "error", "ubutumwa": str(e)}), 400
-
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
